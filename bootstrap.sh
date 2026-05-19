@@ -3,16 +3,17 @@ set -euo pipefail
 
 # Optional no-argument configuration. Fill these in if you want to run
 # ./bootstrap.sh without passing flags.
-PROJECT_ID=""
-STATE_BUCKET=""
-GITHUB_REPOSITORY=""
+PROJECT_ID="test-mcp-496812"
+STATE_BUCKET="test-mcp-terraform-state"
+GITHUB_REPOSITORY="lukaskilianhermann-oss/clinical-trials-mcp-public-test"
 REGION="europe-west3"
 TF_STATE_PREFIX="clinical-trials-mcp/remote-mcp"
 DEPLOY_BRANCH="main"
 TERRAFORM_DEPLOYER_SERVICE_ACCOUNT_ID="trial-mcp-tf-deployer"
-APPLY_TERRAFORM=false
-AUTO_APPROVE=false
-SET_GITHUB_VARS=false
+APPLY_TERRAFORM=true
+AUTO_APPROVE=true
+SET_GITHUB_VARS=true
+DEPLOY_IMAGE=false
 
 usage() {
   cat <<'USAGE'
@@ -26,7 +27,8 @@ Usage: ./bootstrap.sh \
   [--terraform-deployer-service-account-id trial-mcp-tf-deployer] \
   [--apply] \
   [--auto-approve] \
-  [--set-github-vars]
+  [--set-github-vars] \
+  [--deploy-image]
 
 Or edit the configuration block at the top of this file and run:
   ./bootstrap.sh
@@ -38,7 +40,8 @@ Terraform backend.
 
 Use --apply to provision the Cloud Run, Artifact Registry, service account, and
 Workload Identity Federation resources. Use --set-github-vars after apply to
-write deployment variables to the GitHub repository with gh.
+write deployment variables to the GitHub repository with gh. Use --deploy-image
+after --set-github-vars to trigger the first real MCP image deployment.
 USAGE
 }
 
@@ -84,6 +87,11 @@ while [[ $# -gt 0 ]]; do
       SET_GITHUB_VARS=true
       shift
       ;;
+    --deploy-image)
+      DEPLOY_IMAGE=true
+      SET_GITHUB_VARS=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -116,17 +124,27 @@ require_cmd() {
 
 require_cmd terraform
 
-if command -v gcloud.cmd >/dev/null 2>&1; then
-  GCLOUD_BIN="$(command -v gcloud.cmd)"
-elif command -v gcloud >/dev/null 2>&1; then
+if command -v gcloud >/dev/null 2>&1; then
   GCLOUD_BIN="$(command -v gcloud)"
+elif command -v gcloud.cmd >/dev/null 2>&1; then
+  GCLOUD_BIN="$(command -v gcloud.cmd)"
 else
   echo "Missing required command: gcloud" >&2
   exit 1
 fi
 
 run_gcloud() {
-  env -u PYTHONHOME -u PYTHONPATH -u CLOUDSDK_PYTHON "${GCLOUD_BIN}" "$@"
+  local -a env_args=(-u PYTHONHOME -u PYTHONPATH -u CLOUDSDK_PYTHON)
+  if [[ "${GCLOUD_BIN}" == *.cmd ]]; then
+    # Git Bash runs .cmd files poorly when paths or args contain spaces.
+    local gcloud_win="${GCLOUD_BIN}"
+    if command -v cygpath >/dev/null 2>&1; then
+      gcloud_win="$(cygpath -w "${GCLOUD_BIN}")"
+    fi
+    env "${env_args[@]}" cmd.exe //c "\"${gcloud_win}\"" "$@"
+  else
+    env "${env_args[@]}" "${GCLOUD_BIN}" "$@"
+  fi
 }
 
 echo "Setting gcloud project to ${PROJECT_ID}"
@@ -154,7 +172,7 @@ fi
 
 echo "Configuring state bucket"
 run_gcloud storage buckets update "gs://${STATE_BUCKET}" --versioning >/dev/null
-run_gcloud storage buckets update "gs://${STATE_BUCKET}" --pap=enforced >/dev/null
+run_gcloud storage buckets update "gs://${STATE_BUCKET}" --pap >/dev/null
 
 TERRAFORM_DEPLOYER_SERVICE_ACCOUNT="${TERRAFORM_DEPLOYER_SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
@@ -181,7 +199,6 @@ TF_DEPLOYER_MEMBER="serviceAccount:${TERRAFORM_DEPLOYER_SERVICE_ACCOUNT}"
 TF_DEPLOYER_PROJECT_ROLES=(
   roles/artifactregistry.admin
   roles/iam.serviceAccountAdmin
-  roles/iam.serviceAccountIamAdmin
   roles/iam.workloadIdentityPoolAdmin
   roles/resourcemanager.projectIamAdmin
   roles/run.admin
@@ -255,6 +272,19 @@ if [[ "${SET_GITHUB_VARS}" == "true" ]]; then
   echo "GitHub repository variables updated."
 fi
 
+if [[ "${DEPLOY_IMAGE}" == "true" ]]; then
+  require_cmd gh
+
+  echo "Triggering GitHub Actions MCP image deployment on ${DEPLOY_BRANCH}"
+  gh workflow run deploy-cloud-run.yml \
+    --repo "${GITHUB_REPOSITORY}" \
+    --ref "${DEPLOY_BRANCH}" \
+    -f deploy_image=true \
+    -f apply_terraform=false
+
+  echo "GitHub Actions image deployment triggered."
+fi
+
 cat <<EOF
 Bootstrap complete.
 
@@ -280,7 +310,8 @@ Next:
     --deploy-branch ${DEPLOY_BRANCH} \\
     --terraform-deployer-service-account-id ${TERRAFORM_DEPLOYER_SERVICE_ACCOUNT_ID} \\
     --apply \\
-    --set-github-vars
+    --set-github-vars \\
+    --deploy-image
 
 If you apply Terraform manually, add these values manually or rerun bootstrap
 with --set-github-vars after apply:

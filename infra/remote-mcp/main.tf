@@ -99,7 +99,7 @@ resource "google_iam_workload_identity_pool_provider" "github_actions" {
     "attribute.ref"        = "assertion.ref"
   }
 
-  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/${var.deploy_branch}' && assertion.event_name == 'push'"
+  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/${var.deploy_branch}' && (assertion.event_name == 'push' || assertion.event_name == 'workflow_dispatch')"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

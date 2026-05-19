@@ -5,6 +5,18 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      deploy_image:
+        description: Build and deploy the MCP image
+        required: false
+        default: true
+        type: boolean
+      apply_terraform:
+        description: Apply Terraform before deploying the image
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: cloud-run-production
@@ -49,7 +61,9 @@ jobs:
     name: Validate app
     needs: detect_changes
     runs-on: ubuntu-latest
-    if: needs.detect_changes.outputs.app_changed == 'true'
+    if: >
+      needs.detect_changes.outputs.app_changed == 'true' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_image)
 
     steps:
       - name: Checkout
@@ -72,7 +86,9 @@ jobs:
     name: Validate Terraform
     needs: detect_changes
     runs-on: ubuntu-latest
-    if: needs.detect_changes.outputs.infra_changed == 'true'
+    if: >
+      needs.detect_changes.outputs.infra_changed == 'true' ||
+      (github.event_name == 'workflow_dispatch' && inputs.apply_terraform)
 
     steps:
       - name: Checkout
@@ -96,7 +112,21 @@ jobs:
       - detect_changes
       - validate_infra
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect_changes.outputs.infra_changed == 'true'
+    if: >
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (
+        (
+          github.event_name == 'push' &&
+          needs.detect_changes.outputs.infra_changed == 'true' &&
+          needs.validate_infra.result == 'success'
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.apply_terraform &&
+          needs.validate_infra.result == 'success'
+        )
+      )
     permissions:
       contents: read
       id-token: write
@@ -132,11 +162,29 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       always() &&
-      github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect_changes.outputs.app_changed == 'true' &&
+      (
+        (
+          github.event_name == 'push' &&
+          needs.detect_changes.outputs.app_changed == 'true'
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.deploy_image
+        )
+      ) &&
       needs.validate_app.result == 'success' &&
-      (needs.detect_changes.outputs.infra_changed != 'true' || needs.terraform_apply.result == 'success')
+      (
+        (
+          github.event_name == 'push' &&
+          needs.detect_changes.outputs.infra_changed != 'true'
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          !inputs.apply_terraform
+        ) ||
+        needs.terraform_apply.result == 'success'
+      )
     permissions:
       contents: read
       id-token: write

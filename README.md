@@ -96,7 +96,8 @@ Run this from the repository root:
   --github-repository <GITHUB_REPOSITORY> \
   --region <REGION> \
   --apply \
-  --set-github-vars
+  --set-github-vars \
+  --deploy-image
 ```
 
 The script:
@@ -109,10 +110,14 @@ The script:
 - applies the Cloud Run, Artifact Registry, service account, IAM, and Workload
   Identity Federation resources
 - writes the required GitHub repository variables with `gh variable set`
+- triggers the GitHub Actions workflow that builds and deploys the real MCP
+  image
 
 Terraform creates the first Cloud Run service with Google Cloud's sample
 `us-docker.pkg.dev/cloudrun/container/hello` image. That image is only a
 placeholder so the service exists before CI/CD builds the real MCP container.
+`--deploy-image` starts that first image rollout without requiring a dummy code
+change.
 
 ### 4. Push To Deploy The MCP Image
 
@@ -123,8 +128,8 @@ git push origin main
 ```
 
 GitHub Actions will build the Go MCP image, push it to Artifact Registry, and
-deploy a new Cloud Run revision. After that first image rollout, the public MCP
-endpoint is:
+deploy a new Cloud Run revision on later app changes. After the first image
+rollout, the public MCP endpoint is:
 
 ```text
 https://<cloud-run-service-url>/mcp
@@ -143,6 +148,8 @@ separate:
 
 - App changes run Go tests, build the Docker image, push it to Artifact
   Registry, and deploy a new Cloud Run revision.
+- Manual workflow runs can build and deploy the MCP image, which bootstrap uses
+  for the first real image rollout.
 - Infrastructure changes validate Terraform on pull requests without cloud
   authentication.
 - On `main`, infrastructure changes run `terraform apply`.
