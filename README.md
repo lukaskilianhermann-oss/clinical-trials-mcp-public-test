@@ -152,24 +152,6 @@ separate:
 Only push jobs on the configured deploy branch can request GitHub OIDC tokens
 for Google Cloud. Pull request jobs do not get `id-token: write`.
 
-### Fresh Public Repository
-
-This repository previously contained local ADK eval history in Git history. To
-publish publicly without that history, create a new empty GitHub repository and
-push a fresh root commit from the current working tree instead of making the old
-repository public:
-
-```bash
-git clone --depth 1 <local-or-private-repo-url> clinical-trials-mcp-public
-cd clinical-trials-mcp-public
-rm -rf .git
-git init
-git add .
-git commit -m "Initial public release"
-git remote add origin <new-public-repo-url>
-git push -u origin main
-```
-
 ### Local Validation
 
 ```bash
