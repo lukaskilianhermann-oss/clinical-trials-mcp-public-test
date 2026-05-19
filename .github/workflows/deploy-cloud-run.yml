@@ -19,7 +19,7 @@ on:
         type: boolean
 
 concurrency:
-  group: cloud-run-production
+  group: cloud-run-production-${{ github.run_id }}
   cancel-in-progress: false
 
 permissions:
