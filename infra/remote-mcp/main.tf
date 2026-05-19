@@ -76,6 +76,12 @@ resource "google_service_account_iam_member" "ci_can_use_runtime_sa" {
   member             = "serviceAccount:${module.ci_deployer_sa.email}"
 }
 
+resource "google_service_account_iam_member" "terraform_can_use_runtime_sa" {
+  service_account_id = module.runtime_sa.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${var.terraform_deployer_service_account_email}"
+}
+
 resource "google_iam_workload_identity_pool" "github_actions" {
   project                   = var.project_id
   workload_identity_pool_id = var.github_actions_pool_id
@@ -140,5 +146,6 @@ module "cloud_run" {
   depends_on = [
     module.apis,
     module.artifact_registry,
+    google_service_account_iam_member.terraform_can_use_runtime_sa,
   ]
 }
